@@ -1,0 +1,431 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <title>Pokémon GO Event Hub</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    body {
+      margin: 0;
+      font-family: Arial, sans-serif;
+    }
+
+    img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+  </style>
+</head>
+
+<body>
+  <div id="root"></div>
+
+  <!-- React + Babel CDN -->
+  <script src="https://unpkg.com/react@17/umd/react.development.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@17/umd/react-dom.development.js" crossorigin></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+  <script type="text/babel">
+    const storeName = "Pokémon GO Event Hub";
+    const headerImage = "https://wallpapercave.com/wp/wp12044994.jpg";
+
+    // Utility: parse date string like "Jun 5" to a Date object for sorting (uses current year)
+    function parseDateStr(dateStr) {
+      const months = {
+        Jan: 0, Feb: 1, Mar: 2, Apr: 3, May: 4, Jun: 5,
+        Jul: 6, Aug: 7, Sep: 8, Oct: 9, Nov: 10, Dec: 11
+      };
+
+      let firstDate = dateStr.split("–")[0].trim();
+      const [monthStr, dayStr] = firstDate.split(" ");
+      if (!monthStr || !dayStr) return new Date();
+      const month = months[monthStr];
+      const day = parseInt(dayStr, 10);
+      const year = new Date().getFullYear();
+      return new Date(year, month, day);
+    }
+
+    // Helper to get days in a month
+    function getDaysInMonth(year, month) {
+      return new Date(year, month + 1, 0).getDate();
+    }
+
+    // Calendar component
+    function Calendar({ selectedDate, onSelectDate }) {
+      const today = new Date();
+      const year = today.getFullYear();
+      const month = today.getMonth();
+      const firstDayOfMonth = new Date(year, month, 1).getDay();
+      const daysInMonth = getDaysInMonth(year, month);
+      const calendarDays = [];
+
+      for (let i = 0; i < firstDayOfMonth; i++) calendarDays.push(null);
+      for (let day = 1; day <= daysInMonth; day++) calendarDays.push(new Date(year, month, day));
+
+      return (
+        <div className="max-w-sm max-h-60 rounded-2xl shadow-md bg-white p-3 ml-4">
+          <div className="text-center text-lg font-semibold mb-4 text-gray-600">
+            {today.toLocaleString('default', { month: 'long' })} {year}
+          </div>
+
+          <div className="grid grid-cols-7 gap-1 text-center text-xs font-medium text-gray-500 mb-2">
+            {["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"].map(d => (
+              <div key={d} className="py-1">{d}</div>
+            ))}
+          </div>
+          <div className="grid grid-cols-7 gap-2 overflow-hidden" style={{ maxHeight: '150px' }}>
+            {calendarDays.map((date, idx) => {
+              if (!date) return <div key={idx} />;
+              const isToday = date.toDateString() === today.toDateString();
+              const isSelected = selectedDate && date.toDateString() === selectedDate.toDateString();
+
+              return (
+                <button
+                  key={idx}
+                  onClick={() => onSelectDate(date)}
+                  className={`w-full aspect-square text-sm rounded-lg transition-all duration-200
+          ${isToday ? "border-2 border-blue-400 font-bold" : ""}
+          ${isSelected ? "bg-blue-500 text-white shadow-md" : "hover:bg-blue-100"}
+        `}
+                  aria-label={`Select ${date.toDateString()}`}
+                >
+                  {date.getDate()}
+                </button>
+              );
+            })}
+          </div>
+
+
+          {selectedDate && (
+            <button
+              onClick={() => onSelectDate(null)}
+              className="mt-4 block mx-auto text-sm text-red-500 hover:text-red-700 underline"
+            >
+              Clear Date Filter
+            </button>
+          )}
+        </div>
+      );
+    }
+
+
+    const App = () => {
+      const [events, setEvents] = React.useState([]);
+      const [rsvpEvents, setRsvpEvents] = React.useState([]);
+      const [showSchedule, setShowSchedule] = React.useState(true);
+      const [shownPokemon, setShownPokemon] = React.useState({});
+
+      // For checklist filter (collapsible)
+      const [selectedCategories, setSelectedCategories] = React.useState([]);
+      // For sort dropdown
+      const [sortOption, setSortOption] = React.useState("date");
+
+      // For calendar date filter
+      const [selectedDate, setSelectedDate] = React.useState(null);
+      const url = "https://api.github.com/repos/bigfoott/ScrapedDuck/contents/events.json?ref=data";
+      React.useEffect(() => {
+        fetch(url)
+          .then(res => res.json())
+          .then(file => {
+            const decoded = atob(file.content); // decode base64
+            const data = JSON.parse(decoded);
+
+            const normalized = data.map((e, idx) => {
+              const startDate = new Date(e.start);
+              const endDate = new Date(e.end);
+              const options = { month: "short", day: "numeric" };
+              const startStr = startDate.toLocaleDateString("en-US", options);
+              const endStr = endDate.toLocaleDateString("en-US", options);
+              const cleanTitle = (e.name || `Event ${idx + 1}`).replace(/&amp;/g, '&');
+
+              return {
+                title: cleanTitle,
+                date: startStr === endStr ? startStr : `${startStr} – ${endStr}`,
+                time: `${startDate.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" })} - ${endDate.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" })}`,
+                location: "In-App",
+                details: e.heading || "Pokémon GO Event",
+                image: e.image || "https://via.placeholder.com/150",
+                type: e.eventType || "",
+                startDateObj: startDate,
+              };
+            });
+
+            setEvents(normalized);
+            const uniqueTypes = [...new Set(normalized.map(e => e.type).filter(Boolean))];
+            setSelectedCategories(uniqueTypes);
+          })
+          .catch(err => console.error("Failed to fetch events:", err));
+      }, []);
+
+
+
+      const toggleRSVP = (title) => {
+        setRsvpEvents((prev) =>
+          prev.includes(title)
+            ? prev.filter((t) => t !== title)
+            : [...prev, title]
+        );
+      };
+
+      const togglePokemon = (title) => {
+        setShownPokemon((prev) => ({
+          ...prev,
+          [title]: !prev[title]
+        }));
+      };
+
+      const toggleCategory = (category) => {
+        if (selectedCategories.includes(category)) {
+          setSelectedCategories(selectedCategories.filter(c => c !== category));
+        } else {
+          setSelectedCategories([...selectedCategories, category]);
+        }
+      };
+
+      // Filter events by selected categories
+      let filteredEvents = events.filter(e => !e.type || selectedCategories.includes(e.type));
+
+      // Further filter by selected calendar date if set
+      if (selectedDate) {
+        filteredEvents = filteredEvents.filter(e =>
+          e.startDateObj.getFullYear() === selectedDate.getFullYear() &&
+          e.startDateObj.getMonth() === selectedDate.getMonth() &&
+          e.startDateObj.getDate() === selectedDate.getDate()
+        );
+      }
+
+      // Sort events
+      const sortedEvents = React.useMemo(() => {
+        if (sortOption === "alphabetical") {
+          return filteredEvents.slice().sort((a, b) => a.title.localeCompare(b.title));
+        } else if (sortOption === "date") {
+          return filteredEvents.slice().sort((a, b) => a.startDateObj - b.startDateObj);
+        }
+        return filteredEvents;
+      }, [filteredEvents, sortOption]);
+
+      // Collapsible state for categories checklist
+      const [categoriesOpen, setCategoriesOpen] = React.useState(true);
+
+      return (
+        <div className="min-h-screen bg-gray-100">
+          <div className="bg-white shadow-md py-4 text-center text-2xl font-bold">
+            {storeName}
+          </div>
+
+          <div className="relative w-full h-64">
+            <img src={headerImage} alt="Header" className="object-cover w-full h-full" />
+            <div className="absolute inset-0 flex flex-col items-center justify-center bg-black bg-opacity-60 text-white">
+              <div className="text-lg font-semibold">Explore Upcoming Events</div>
+            </div>
+          </div>
+
+          <div className="bg-white shadow-inner py-6 px-6 max-w-4xl mx-auto my-6 rounded">
+            <h2 className="text-xl font-bold mb-4">🗓️ My Schedule</h2>
+
+            <div className="flex flex-wrap gap-2 mb-4">
+              <button className="bg-red-500 hover:bg-red-600 text-white text-sm px-3 py-1 rounded" onClick={() => setRsvpEvents([])}>Clear All</button>
+              <button className="bg-yellow-500 hover:bg-yellow-600 text-white text-sm px-3 py-1 rounded" onClick={() => setShowSchedule(!showSchedule)}>
+                {showSchedule ? "Collapse" : "Expand"}
+              </button>
+              <button className="bg-blue-500 hover:bg-blue-600 text-white text-sm px-3 py-1 rounded" onClick={() => {
+                const content = rsvpEvents.join("\n");
+                const blob = new Blob([content], { type: "text/plain" });
+                const link = document.createElement("a");
+                link.href = URL.createObjectURL(blob);
+                link.download = "my-pogo-schedule.txt";
+                link.click();
+              }}>
+                Save as Notepad
+              </button>
+              <label className="bg-green-500 hover:bg-green-600 text-white text-sm px-3 py-1 rounded cursor-pointer">
+                Import Notepad
+                <input type="file" accept=".txt" onChange={(e) => {
+                  const file = e.target.files[0];
+                  if (!file) return;
+                  const reader = new FileReader();
+                  reader.onload = (e) => {
+                    const titles = e.target.result.split("\n").map((t) => t.trim()).filter(Boolean);
+                    setRsvpEvents(titles);
+                  };
+                  reader.readAsText(file);
+                }} className="hidden" />
+              </label>
+              {/* Google Calendar Button */}
+              <button
+                className="bg-green-600 hover:bg-green-700 text-white text-sm px-3 py-1 rounded"
+                onClick={() => {
+                  const rsvpList = events.filter(e => rsvpEvents.includes(e.title));
+                  if (rsvpList.length === 0) {
+                    alert("No RSVP'd events to add.");
+                    return;
+                  }
+                  rsvpList.forEach(event => {
+                    const start = event.startDateObj;
+                    const end = new Date(start.getTime() + 2 * 60 * 60 * 1000); // 2 hours default
+                    const formatDate = d =>
+                      d.toISOString().replace(/[-:]/g, '').split('.')[0] + 'Z';
+                    const url = `http://localhost:4000/auth/google`;
+                    window.open(url, '_blank');
+                  });
+                }}
+              >
+                Google Calendar
+              </button>
+            </div>
+
+            {showSchedule && (
+              rsvpEvents.length === 0
+                ? <div className="text-gray-500">You haven't RSVP'd to any events yet.</div>
+                : <ul className="list-disc list-inside space-y-2">
+                  {events.filter(e => rsvpEvents.includes(e.title)).map((e, idx) => (
+                    <li key={idx} className="text-sm">
+                      <strong>{e.title}</strong> | {e.date} | {e.time}
+                    </li>
+                  ))}
+                </ul>
+            )}
+          </div>
+
+          <div className="max-w-6xl mx-auto p-6">
+            <h2 className="text-xl font-bold mb-4">🎉 Upcoming Events</h2>
+
+            <div className="flex flex-wrap gap-6">
+              {/* Collapsible checklist filter */}
+              <div className="mb-6 max-w-xs border rounded shadow bg-white p-4">
+                <button
+                  onClick={() => setCategoriesOpen(!categoriesOpen)}
+                  className="w-full text-left font-semibold text-lg flex justify-between items-center"
+                  aria-expanded={categoriesOpen}
+                  aria-controls="categories-list"
+                >
+                  Filter by Event Categories
+                  <span className="ml-2 text-xl">{categoriesOpen ? "▲" : "▼"}</span>
+                </button>
+                {categoriesOpen && (
+                  <div id="categories-list" className="mt-3 max-h-64 overflow-auto">
+                    {Array.from(new Set(events.map(e => e.type).filter(Boolean))).sort().map((category) => (
+                      <label key={category} className="flex items-center space-x-2 mb-2 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={selectedCategories.includes(category)}
+                          onChange={() => toggleCategory(category)}
+                          className="cursor-pointer"
+                        />
+                        <span>{category.replace(/-/g, " ").replace(/\b\w/g, c => c.toUpperCase())}</span>
+                      </label>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Calendar component */}
+              <Calendar selectedDate={selectedDate} onSelectDate={setSelectedDate} />
+
+            </div>
+
+            {/* Sort dropdown */}
+            <div className="mb-6 max-w-xs">
+              <label htmlFor="sort-select" className="block font-semibold mb-1">Sort Events By</label>
+              <select
+                id="sort-select"
+                value={sortOption}
+                onChange={e => setSortOption(e.target.value)}
+                className="border border-gray-400 rounded px-3 py-2 w-full"
+              >
+                <option value="date">Date</option>
+                <option value="alphabetical">Alphabetical</option>
+              </select>
+            </div>
+
+            {/* Event cards */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
+              {sortedEvents.map((event, idx) => {
+                const isRaidHour = event.type === "raid-hour";
+
+                let pokemonImages = [];
+
+                if (isRaidHour) {
+                  // Handle multi-Pokémon names before "Raid Hour"
+                  let namesPart = event.title.replace(/Raid Hour/i, "").trim();
+
+                  if (namesPart.includes(",") || namesPart.includes("&")) {
+                    const separators = /,|&/;
+                    const rawNames = namesPart.split(separators).map(n => n.trim()).filter(Boolean);
+                    pokemonImages = rawNames.map(name => {
+                      const formattedName = name.toLowerCase().replace(/[^a-z0-9]+/g, "-");
+                      return `https://img.pokemondb.net/artwork/large/${formattedName}.jpg`;
+                    });
+                  } else if (namesPart.length > 0) {
+                    const formattedName = namesPart.toLowerCase().replace(/[^a-z0-9]+/g, "-");
+                    pokemonImages = [`https://img.pokemondb.net/artwork/large/${formattedName}.jpg`];
+                  }
+                }
+
+                const hasImages = pokemonImages.length > 0 && pokemonImages[0] !== "https://img.pokemondb.net/artwork/large/.jpg";
+
+                return (
+                  <div key={idx} className="bg-white shadow rounded overflow-hidden relative flex flex-col justify-between">
+                    <div className="absolute top-2 left-2 bg-white px-2 py-1 text-xs font-bold rounded shadow z-10">
+                      {event.date}
+                    </div>
+
+                    {isRaidHour && hasImages && (
+                      <button
+                        onClick={() => togglePokemon(event.title)}
+                        className="absolute top-2 right-2 bg-yellow-400 hover:bg-yellow-500 text-xs px-2 py-1 rounded shadow z-50"
+                      >
+                        {shownPokemon[event.title] ? "Hide Pokémon" : "Show Pokémon"}
+                      </button>
+                    )}
+
+                    <div className="relative h-[200px] bg-gray-100">
+                      <img src={event.image} alt={event.title} className="w-full h-full object-contain" />
+
+                      {shownPokemon[event.title] && isRaidHour && hasImages && (
+                        <div className="absolute inset-0 bg-black bg-opacity-60 flex items-center justify-center z-20 space-x-2 px-4">
+                          {pokemonImages.map((img, i) => (
+                            <img
+                              key={i}
+                              src={img}
+                              alt="Pokémon"
+                              className="max-h-full max-w-full object-contain rounded shadow-lg border-4 border-white"
+                            />
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="p-3 text-sm space-y-1">
+                      <div className="font-bold text-base">{event.title}</div>
+                      <div className="text-gray-500">{event.time}</div>
+                      <div>{event.details}</div>
+                    </div>
+
+                    <div className="p-3 pt-0">
+                      <button
+                        onClick={() => toggleRSVP(event.title)}
+                        className={`mt-2 w-full px-3 py-1 rounded text-white text-sm font-medium transition ${rsvpEvents.includes(event.title)
+                          ? "bg-green-600 hover:bg-green-700"
+                          : "bg-blue-600 hover:bg-blue-700"
+                          }`}
+                      >
+                        {rsvpEvents.includes(event.title) ? "Going ✓" : "RSVP I'm Going"}
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      );
+    };
+
+    ReactDOM.render(<App />, document.getElementById("root"));
+  </script>
+</body>
+
+</html>
